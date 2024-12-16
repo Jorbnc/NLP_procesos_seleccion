@@ -71,7 +71,7 @@ n_samples = size(text_features, 1)
 train_indices = sample(1:n_samples, Int64(round(0.8 * n_samples)), replace=false) # 80% train
 test_indices = setdiff(1:n_samples, train_indices) # remaining 20% test
 
-train_features = text_features[train_indices, :]' # NOTE:
+train_features = text_features[train_indices, :]' # NOTE: Understand
 test_features = text_features[test_indices, :]'
 
 train_labels = one_hot_labels[:, train_indices] # WARNING: This has to be run just once, that's why the error
@@ -79,7 +79,8 @@ test_labels = one_hot_labels[:, test_indices]
 
 # Step 3: Define the model
 model = Chain(
-    Dense(2206 => 128, relu),   # Input layer: 2206 features -> 128 hidden
+    Dense(2206 => 256, relu),   # Input layer: 2206 features -> 128 hidden
+    Dense(256 => 128, relu),    # Hidden layer: 128 -> 64 hidden
     Dense(128 => 64, relu),    # Hidden layer: 128 -> 64 hidden
     Dense(64 => num_classes),  # Output layer: 64 -> num_classes
     softmax                    # Convert logits to probabilities
@@ -89,7 +90,10 @@ model = Chain(
 loss_function(ŷ, y) = Flux.logitcrossentropy(ŷ, y)
 
 # Step 5: Define the optimizer
-optimizer = Flux.Adam()
+#= optimizer = Flux.Adam() =#
+# NOTE: Test -> Works!
+opt_state = Flux.setup(Flux.Adam(), model)
+
 
 # Step 6: Create data loaders
 batch_size = 64
@@ -99,7 +103,7 @@ test_loader = Flux.DataLoader((test_features, test_labels), batchsize=batch_size
 
 
 ## Step 7: Training loop
-epochs = 10
+epochs = 100
 for epoch in 1:epochs
     @info "Epoch $epoch"
     # Training phase
@@ -111,7 +115,8 @@ for epoch in 1:epochs
         end
         #
         # Update weights
-        Flux.update!(optimizer, model, grads)
+        #= Flux.update!(optimizer, model, grads) =#
+        Flux.update!(opt_state, model, grads[1])
     end
 
     # Evaluation phase
@@ -131,7 +136,3 @@ end
 predictions = predict(model, test_features)
 
 ##
-
-train_features
-train_labels'
-
