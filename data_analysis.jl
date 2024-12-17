@@ -44,10 +44,11 @@ end
 ##
 
 test_data = @pipe filter(:VERBO => ismissing, df) |> select(_, "Descripción de Objeto" => :S)
-results = transform(test_data, :S => ByRow(x -> argmax(predict(nbc, procesar(x)))) => :Pred)
+test_data = test_data[1:20, :]
+results = transform(test_data, :S => ByRow(x -> argmax(predict(nbc, x))) => :Pred)
 
 ##
 
-for row in eachrow(results)
-    println(row.S, " 🚀🚀🚀 ", row.Pred, "\n")
+for (i, row) in enumerate(eachrow(results))
+    println(i, ": ", row.S, " 🚀🚀🚀 ", row.Pred, "\n")
 end

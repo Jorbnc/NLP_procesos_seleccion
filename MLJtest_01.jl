@@ -5,14 +5,14 @@ using MLJText, TextAnalysis, Languages
 using StatsBase: sample
 import Optimisers
 
-##
+## Loading the raw data
 
 df = XLSX.readtable("data/filtered_procesos_04.xlsx", "Sheet1") |> DataFrame
 gd = @pipe filter(:VERBO => !ismissing, df) |> select(_, ["VERBO", "OBJETO/TIPO"]) |> groupby(_, ["VERBO", "OBJETO/TIPO"])
 gd_count = @pipe combine(gd, nrow => :count) |> sort(_, :count, rev=true)
 filter(["VERBO", "OBJETO/TIPO"] => (x, y) -> !startswith("?")(x) && !startswith("?")(y), gd_count)
 
-##
+## Preprocessing the data
 
 function procesar_str(str::String)
     sd = lowercase(str) |> StringDocument
@@ -42,16 +42,13 @@ data = DataFrame(
     :label => Symbol.(filtered_df."VERBO" .* "_" .* filtered_df."OBJETO/TIPO")
 )
 
-#= foreach(normalize!, eachcol(data.val)) =#
-##
+## 
 
 corpus = Corpus(data.desc)
 update_lexicon!(corpus)
-lexicon(corpus)
+#= lexicon(corpus) =#
 m = DocumentTermMatrix(corpus)
-#= tf(m) =#
-#= tf_idf(m) =#
-text_features = bm_25(m)
+text_features = m.dtm # bm_25(m)
 labels = data.label
 
 ## Encode labels as integers
@@ -64,7 +61,7 @@ num_classes = length(unique_labels)
 one_hot_labels = Flux.onehotbatch(label_indices, 1:num_classes)
 
 # Ensure text features are of type Float32
-text_features = Float32.(text_features)
+#= text_features = Float32.(text_features) =#
 
 # Step 2: Split data into training and testing sets
 n_samples = size(text_features, 1)
@@ -74,15 +71,15 @@ test_indices = setdiff(1:n_samples, train_indices) # remaining 20% test
 train_features = text_features[train_indices, :]' # NOTE: Understand
 test_features = text_features[test_indices, :]'
 
-train_labels = one_hot_labels[:, train_indices] # WARNING: This has to be run just once, that's why the error
+train_labels = one_hot_labels[:, train_indices]
 test_labels = one_hot_labels[:, test_indices]
 
 # Step 3: Define the model
 model = Chain(
-    Dense(2206 => 256, relu),   # Input layer: 2206 features -> 128 hidden
-    Dense(256 => 128, relu),    # Hidden layer: 128 -> 64 hidden
-    Dense(128 => 64, relu),    # Hidden layer: 128 -> 64 hidden
-    Dense(64 => num_classes),  # Output layer: 64 -> num_classes
+    Dense(size(text_features, 2) => 256 * 2, relu),   # Input layer: 2206 features -> 128 hidden
+    #= Dense(256 * 2 => 128 * 2, relu),    # Hidden layer: 128 -> 64 hidden =#
+    #= Dense(256 * 2 => 64, relu),    # Hidden layer: 128 -> 64 hidden =#
+    Dense(256 * 2 => num_classes),  # Output layer: 64 -> num_classes
     softmax                    # Convert logits to probabilities
 )
 
@@ -103,7 +100,7 @@ test_loader = Flux.DataLoader((test_features, test_labels), batchsize=batch_size
 
 
 ## Step 7: Training loop
-epochs = 100
+epochs = 500
 for epoch in 1:epochs
     @info "Epoch $epoch"
     # Training phase
@@ -132,7 +129,49 @@ function predict(model, features)
     return predictions
 end
 
-# Example usage
+## Example usage
 predictions = predict(model, test_features)
+unique_labels[predictions]
 
 ##
+
+res = DataFrame(trueLabel=labels[test_indices], predLabel=unique_labels[predictions])
+DataFrames.transform!(res, [:trueLabel, :predLabel] => ByRow((x, y) -> x == y) => :results)
+res.results |> sum
+
+##
+
+test_data = @pipe filter(:VERBO => ismissing, df) |> select(_, "Descripción de Objeto" => :S)
+test_data = test_data[1:20, :]
+test_data.SD = procesar_str.(test_data.S)
+#= test_data.SD = procesar_str.([filtered_df."Descripción de Objeto"[1]]) =#
+
+test_faatures_2 = []
+test_features_2 = Float32.(vcat(
+    dtv(test_data.SD[1], lexicon(corpus)),
+    dtv(test_data.SD[3], lexicon(corpus)),
+    dtv(test_data.SD[2], lexicon(corpus)),
+    dtv(test_data.SD[4], lexicon(corpus)),
+    dtv(test_data.SD[5], lexicon(corpus)),
+    dtv(test_data.SD[6], lexicon(corpus)),
+    dtv(test_data.SD[7], lexicon(corpus)),
+    dtv(test_data.SD[8], lexicon(corpus)),
+    dtv(test_data.SD[9], lexicon(corpus)),
+    dtv(test_data.SD[10], lexicon(corpus)),
+    dtv(test_data.SD[11], lexicon(corpus)),
+    dtv(test_data.SD[12], lexicon(corpus)),
+    dtv(test_data.SD[13], lexicon(corpus)),
+    dtv(test_data.SD[14], lexicon(corpus)),
+    dtv(test_data.SD[15], lexicon(corpus)),
+    dtv(test_data.SD[16], lexicon(corpus)),
+    dtv(test_data.SD[17], lexicon(corpus)),
+    dtv(test_data.SD[18], lexicon(corpus)),
+    dtv(test_data.SD[19], lexicon(corpus)),
+    dtv(test_data.SD[20], lexicon(corpus))
+))'
+
+predictions_2 = predict(model, test_features_2)
+
+for (i, pred) in enumerate(unique_labels[predictions_2])
+    println(i, ": ", pred)
+end
