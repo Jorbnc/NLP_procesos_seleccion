@@ -21,6 +21,7 @@ function procesar_str(str::String)
     prepare!(sd, strip_pronouns)
     prepare!(sd, strip_prepositions)
     prepare!(sd, strip_non_letters)
+    prepare!(sd, strip_stopwords)
     prepare!(sd, strip_whitespace)
     return sd
 end
@@ -29,15 +30,37 @@ function procesar_val(val::String)
     try
         parse(Float64, replace(val, "," => ""))
     catch
-        0.0
+        missing
     end
 end
+
+objeto_de_contrat = ["Bien", "Consultoría de Obra", "Obra", "Servicio"]
+map_objeto(s::String) = findfirst(x -> x == s, objeto_de_contrat)
+
+##
+location_words = [
+    "poblado", "localidad", "distrito", "provincia", "departamento", "región",
+    "poblados", "localidades", "distritos", "provincias",
+]
+
+function remove_unnecessary_words(s::String)
+    s = lowercase(s) |> split
+
+    for loc in location_words
+        idx = findfirst(occursin.(loc, s))
+        typeof(idx) == Int64 && (s = s[1:idx-1]; break)
+    end
+
+    return join(s, " ")
+end
+
+##
 
 filtered_df = @pipe filter(:VERBO => !ismissing, df)
 
 data = DataFrame(
-    :objeto => procesar_str.(filtered_df."Objeto de Contratación"),
-    :desc => procesar_str.(filtered_df."Descripción de Objeto"),
+    :objeto => map_objeto.(filtered_df."Objeto de Contratación"), # TEST: @benchmark it with String.(filtered_df."Obj...")
+    :desc => procesar_str.(remove_unnecessary_words.(filtered_df."Descripción de Objeto")),
     :val => procesar_val.(filtered_df."Valor Referencial / Valor Estimado"),
     :label => Symbol.(filtered_df."VERBO" .* "_" .* filtered_df."OBJETO/TIPO")
 )
@@ -60,23 +83,20 @@ label_indices = [label_to_index[label] for label in labels]
 num_classes = length(unique_labels)
 one_hot_labels = Flux.onehotbatch(label_indices, 1:num_classes)
 
-# Ensure text features are of type Float32
-#= text_features = Float32.(text_features) =#
-
 # Step 2: Split data into training and testing sets
 n_samples = size(text_features, 1)
 train_indices = sample(1:n_samples, Int64(round(0.8 * n_samples)), replace=false) # 80% train
 test_indices = setdiff(1:n_samples, train_indices) # remaining 20% test
 
-train_features = text_features[train_indices, :]' # NOTE: Understand
-test_features = text_features[test_indices, :]'
+train_features = hcat(data.objeto[train_indices], text_features[train_indices, :])' # NOTE: Understand
+test_features = hcat(data.objeto[test_indices], text_features[test_indices, :])'
 
 train_labels = one_hot_labels[:, train_indices]
 test_labels = one_hot_labels[:, test_indices]
 
 # Step 3: Define the model
 model = Chain(
-    Dense(size(text_features, 2) => 256 * 2, relu),   # Input layer: 2206 features -> 128 hidden
+    Dense(size(text_features, 2) + 1 => 256 * 2, relu),   # Input layer: 2206 features -> 128 hidden
     #= Dense(256 * 2 => 128 * 2, relu),    # Hidden layer: 128 -> 64 hidden =#
     #= Dense(256 * 2 => 64, relu),    # Hidden layer: 128 -> 64 hidden =#
     Dense(256 * 2 => num_classes),  # Output layer: 64 -> num_classes
@@ -93,14 +113,14 @@ opt_state = Flux.setup(Flux.Adam(), model)
 
 
 # Step 6: Create data loaders
-batch_size = 64
+batch_size = 64 # NOTE: WHY?
 
 train_loader = Flux.DataLoader((train_features, train_labels), batchsize=batch_size, shuffle=true)
 test_loader = Flux.DataLoader((test_features, test_labels), batchsize=batch_size, shuffle=false)
 
 
 ## Step 7: Training loop
-epochs = 500
+epochs = 200
 for epoch in 1:epochs
     @info "Epoch $epoch"
     # Training phase
@@ -133,42 +153,28 @@ end
 predictions = predict(model, test_features)
 unique_labels[predictions]
 
-##
-
 res = DataFrame(trueLabel=labels[test_indices], predLabel=unique_labels[predictions])
 DataFrames.transform!(res, [:trueLabel, :predLabel] => ByRow((x, y) -> x == y) => :results)
 res.results |> sum
 
-##
+## INFO: PREDICTION
 
-test_data = @pipe filter(:VERBO => ismissing, df) |> select(_, "Descripción de Objeto" => :S)
+test_data = @pipe filter(:VERBO => ismissing, df)
+test_data = DataFrame(
+    :O => map_objeto.(test_data."Objeto de Contratación"),
+    :SD => procesar_str.(test_data."Descripción de Objeto")
+)
 test_data = test_data[1:20, :]
-test_data.SD = procesar_str.(test_data.S)
-#= test_data.SD = procesar_str.([filtered_df."Descripción de Objeto"[1]]) =#
 
-test_faatures_2 = []
-test_features_2 = Float32.(vcat(
-    dtv(test_data.SD[1], lexicon(corpus)),
-    dtv(test_data.SD[3], lexicon(corpus)),
-    dtv(test_data.SD[2], lexicon(corpus)),
-    dtv(test_data.SD[4], lexicon(corpus)),
-    dtv(test_data.SD[5], lexicon(corpus)),
-    dtv(test_data.SD[6], lexicon(corpus)),
-    dtv(test_data.SD[7], lexicon(corpus)),
-    dtv(test_data.SD[8], lexicon(corpus)),
-    dtv(test_data.SD[9], lexicon(corpus)),
-    dtv(test_data.SD[10], lexicon(corpus)),
-    dtv(test_data.SD[11], lexicon(corpus)),
-    dtv(test_data.SD[12], lexicon(corpus)),
-    dtv(test_data.SD[13], lexicon(corpus)),
-    dtv(test_data.SD[14], lexicon(corpus)),
-    dtv(test_data.SD[15], lexicon(corpus)),
-    dtv(test_data.SD[16], lexicon(corpus)),
-    dtv(test_data.SD[17], lexicon(corpus)),
-    dtv(test_data.SD[18], lexicon(corpus)),
-    dtv(test_data.SD[19], lexicon(corpus)),
-    dtv(test_data.SD[20], lexicon(corpus))
-))'
+lex = lexicon(corpus)
+
+# Gotta loop, since broadcasting over dictionaries dtv.(test_data.SD, lex) is not possible
+test_features_2 = Array{Int64}(undef, size(test_data, 1), length(lex) + 1)
+for (i, sd) in enumerate(test_data.SD)
+    test_features_2[i, 1] = test_data.O[i]
+    test_features_2[i, 2:end] = dtv(sd, lex)
+end
+test_features_2 = test_features_2'
 
 predictions_2 = predict(model, test_features_2)
 

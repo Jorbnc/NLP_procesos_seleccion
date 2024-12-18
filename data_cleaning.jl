@@ -23,7 +23,7 @@ end
 #= joined_df |> sort =#
 
 ## Filtrar solo procesos válidos de la lista
-procesos_validos = ["ABR", "SEL", "AS", "CP", "LP", "PEC", "SCI", "SIE"]
+procesos_validos = ["SEL", "AS", "CP", "LP", "PEC", "SCI", "SIE"]
 filter_df(df::DataFrame) = filter(:Nomenclatura => x -> x[1:findfirst('-', x)-1] ∈ procesos_validos, df)
 write_filtered_df(name::String, df::DataFrame) = XLSX.writetable(name, df)
 
