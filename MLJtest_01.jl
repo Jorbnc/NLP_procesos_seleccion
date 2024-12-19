@@ -1,7 +1,7 @@
 using XLSX, DataFrames
 using Pipe: @pipe
 using MLJ, Flux, MLJFlux
-using MLJText, TextAnalysis, Languages
+using TextAnalysis, Languages #, MLJText
 using StatsBase: sample
 import Optimisers
 
@@ -10,7 +10,7 @@ import Optimisers
 df = XLSX.readtable("data/filtered_procesos_04.xlsx", "Sheet1") |> DataFrame
 gd = @pipe filter(:VERBO => !ismissing, df) |> select(_, ["VERBO", "OBJETO/TIPO"]) |> groupby(_, ["VERBO", "OBJETO/TIPO"])
 gd_count = @pipe combine(gd, nrow => :count) |> sort(_, :count, rev=true)
-filter(["VERBO", "OBJETO/TIPO"] => (x, y) -> !startswith("?")(x) && !startswith("?")(y), gd_count)
+label_frequency = filter(["VERBO", "OBJETO/TIPO"] => (x, y) -> !startswith("?")(x) && !startswith("?")(y), gd_count)
 
 ## Preprocessing the data
 
@@ -181,3 +181,25 @@ predictions_2 = predict(model, test_features_2)
 for (i, pred) in enumerate(unique_labels[predictions_2])
     println(i, ": ", pred)
 end
+
+
+## INFO: Violin Plots de los Valores Referenciales
+
+#= b_labels = [ =#
+#=     #= :ejecucion_vial, =# =#
+#=     :ejecucion_puente, =#
+#=     #= :ejecucion_edif_educativa, =# =#
+#=     :ejecucion_edif_deportiva, =#
+#=     :supervision_vial, =#
+#=     :supervision_agua_saneamiento, =#
+#=     :exped_tec_edif_educativa, =#
+#=     :supervision_edif_educativa, =#
+#= ] =#
+#==#
+#= b_data = filter([:val, :label] => (v, l) -> !ismissing(v) && l ∈ b_labels, data) =#
+#==#
+#= AlgebraOfGraphics.data(b_data) * visual(Violin) * mapping(:label, :val) |> draw =#
+
+
+
+
