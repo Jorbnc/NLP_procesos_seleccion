@@ -69,10 +69,14 @@ data = DataFrame(
 
 corpus = Corpus(data.desc)
 update_lexicon!(corpus)
-#= lexicon(corpus) =#
+lex = lexicon(corpus)
+
 m = DocumentTermMatrix(corpus)
 text_features = m.dtm # bm_25(m)
 labels = data.label
+
+# TODO: Refactor and try tf_idf() vs. bm_25() vs. current approach 
+sort(collect(lex), by=last, rev=true)
 
 ## Encode labels as integers
 unique_labels = unique(labels)
@@ -166,7 +170,6 @@ test_data = DataFrame(
 )
 test_data = test_data[1:20, :]
 
-lex = lexicon(corpus)
 
 # Gotta loop, since broadcasting over dictionaries dtv.(test_data.SD, lex) is not possible
 test_features_2 = Array{Int64}(undef, size(test_data, 1), length(lex) + 1)
