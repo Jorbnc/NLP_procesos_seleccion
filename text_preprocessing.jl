@@ -16,24 +16,13 @@ const location_words = Set([
 
 function remove_unnecessary_words(str::String)
     s = split(str)
-
-    for word in location_words
-        println("Word")
-        idx = findfirst(x -> x == word, s)
-        try
-            s = s[1:idx-1]
-            break
-        catch
-            Nothing
-        end
-    end
-
-    return join(s, " ")
+    idx = findfirst(x -> x in location_words, s)
+    return idx === nothing ? str : join(s[1:idx-1], " ")
 end
 
 function procesar_str(str::String)
-    s = replace(str, "-" => " ", ":" => " ") |>
-        lowercase |> remove_unnecessary_words
+    s = lowercase(replace(str, "-" => " ", ":" => " "))
+    s = remove_unnecessary_words(s)
     sd = StringDocument(s)
     language!(sd, Languages.Spanish())
     prepare!(sd, strip_articles)

@@ -1,10 +1,8 @@
-using DataFrames
-using XLSX
+using DataFrames, XLSX
 using Pipe
-using TextAnalysis
-using Languages
+using TextAnalysis, Languages
 using StatsBase: sample
-using MLJ, Flux
+using Flux, MLJ
 import Optimisers
 include("text_preprocessing.jl")
 
@@ -13,15 +11,15 @@ df = XLSX.readtable("foo.xlsx", "Sheet1") |> DataFrame
 filter!(:sustantivo => !ismissing, df)
 
 ##
-objeto_de_contrat = ["Consultoría de Obra", "Obra", "Servicio"]
-map_objeto(s::String) = findfirst(x -> x == s, objeto_de_contrat)
+const objeto_dict = Dict(objeto => idx for (idx, objeto) in enumerate(["Consultoría de Obra", "Obra", "Servicio"]))
+map_objeto(s::String) = get(objeto_dict, s, nothing)
 
 ##
 @time data = DataFrame(
-    :OBJETOCONTRACTUAL => map_objeto.(df.OBJETOCONTRACTUAL),
-    :DESCRIPCION_PROCESO => procesar_str.(df.DESCRIPCION_PROCESO),
+    :OBJETOCONTRACTUAL => map(map_objeto, df.OBJETOCONTRACTUAL),
+    :DESCRIPCION_PROCESO => map(procesar_str, df.DESCRIPCION_PROCESO),
     :MONTO_REFERENCIAL_ITEM => df.MONTO_REFERENCIAL_ITEM,
-    :LABEL => Symbol.(df.verbo .* "_" .* df.sustantivo)
+    :LABEL => map(s -> Symbol(s.verbo * "_" * s.sustantivo), eachrow(df))
 )
 filter!(:DESCRIPCION_PROCESO => x -> length(split(x.text)) > 1, data)
 
@@ -68,10 +66,8 @@ model = Chain(
 )
 
 ##
-
 model_state = JLD2.load("seace_model.jld2", "model_state")
 Flux.loadmodel!(model, model_state)
-
 
 ## Step 4: Define the loss function
 loss_function(ŷ, y) = Flux.logitcrossentropy(ŷ, y)
@@ -85,8 +81,8 @@ train_loader = Flux.DataLoader((train_features, train_labels), batchsize=batch_s
 test_loader = Flux.DataLoader((test_features, test_labels), batchsize=batch_size, shuffle=false)
 
 ## Step 7: Training loop
-epochs = 10
-for epoch in 1:epochs
+epochs = 15
+@time for epoch in 1:epochs
     @info "Epoch $epoch"
     # Training phase
     for (x, y) in train_loader
@@ -120,7 +116,7 @@ unique_labels[predictions]
 
 res = DataFrame(trueLabel=labels[test_indices], predLabel=unique_labels[predictions])
 DataFrames.transform!(res, [:trueLabel, :predLabel] => ByRow((x, y) -> x == y) => :results)
-#= sum(res.results) / length(res.results) =#
+sum(res.results) / length(res.results)
 
 ## INFO: Prediction (new data)
 
