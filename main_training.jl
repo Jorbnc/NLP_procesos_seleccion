@@ -21,7 +21,31 @@ map_objeto(s::String) = get(objeto_dict, s, nothing)
     :MONTO_REFERENCIAL_ITEM => df.MONTO_REFERENCIAL_ITEM,
     :LABEL => map(s -> Symbol(s.verbo * "_" * s.sustantivo), eachrow(df))
 )
-filter!(:DESCRIPCION_PROCESO => x -> length(split(x.text)) > 1, data)
+##
+filter!(:DESCRIPCION_PROCESO => x -> length(split(x.text)) > 2, data)
+
+## WARNING: DELETE
+rnd_idx = rand(1:135547, 20)
+for s in map(procesar_str, df.DESCRIPCION_PROCESO[rnd_idx])
+    println(s.text)
+end
+
+## WARNING: DELETE
+for w in location_words_vec
+    try
+        println(w, " --> ", lex[w])
+    catch
+        nothing
+    end
+end
+
+## WARNING: DELETE
+for d in filter(:DESCRIPCION_PROCESO => x -> occursin("distrito", x.text), data).DESCRIPCION_PROCESO
+    println(d.text)
+end
+
+## WARNING: DELETE
+filter(:DESCRIPCION_PROCESO => x -> occursin("2452662", x), df).DESCRIPCION_PROCESO[1]
 
 ##
 corpus = Corpus(data.DESCRIPCION_PROCESO)
