@@ -1,4 +1,9 @@
 ## WARNING:
+for g in eachrow(@pipe combine(groupby(df, :LABEL), nrow => :Counted) |> sort(_, :Counted))
+    println(g.LABEL, " 🔴 ", g.Counted)
+end
+
+## WARNING:
 for g in groupby(data, :LABEL)
     println("🔴 ", g.LABEL[1])
     g_size = size(g, 1)
