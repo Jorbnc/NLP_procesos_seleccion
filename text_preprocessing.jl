@@ -14,7 +14,6 @@ const words_set = Set([
     "departamento", "departamentos",
     "región", "region", "regiones",
     "meta",
-    # 🔴
     "tramo",
     "av",
     "dv", "cu",
@@ -25,7 +24,7 @@ const words_set = Set([
     "regional"
 ])
 
-function remove_unnecessary_words_set(str::String)
+function remove_unnecessary_words(str::String)
     s = split(str)
     idx = findfirst(w -> w in words_set, s)
     return idx === nothing ? str : join(s[1:idx-1], " ")
@@ -41,6 +40,6 @@ function procesar_str(str::String)
         "=" => " ") |> StringDocument
     language!(sd, Languages.Spanish())
     prepare!(sd, strip_non_letters | strip_stopwords | strip_articles | strip_pronouns | strip_prepositions | strip_whitespace)
-    sd = remove_unnecessary_words_set(sd.text) |> StringDocument
+    sd = remove_unnecessary_words(sd.text) |> StringDocument
     return sd
 end

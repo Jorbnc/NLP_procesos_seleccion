@@ -7,9 +7,6 @@ using Flux, MLJ
 include("text_preprocessing.jl")
 
 ## Funciones para obtener data de archivo .xlsx
-const OBJETO_DICT = Dict(objeto => idx for (idx, objeto) in enumerate(["Consultoría de Obra", "Obra", "Servicio"]))
-map_objeto(s::String) = get(OBJETO_DICT, s, nothing)
-
 # Leer .xlsx y filtrar filas con entradas :LABEL faltantes
 function data_from_xlsx(file_path::String, sheet_name::String)
     df = XLSX.readtable(file_path, sheet_name) |> DataFrame
@@ -17,17 +14,21 @@ function data_from_xlsx(file_path::String, sheet_name::String)
     return df
 end
 
-# Preprocesar data relevante para el modelo + Filtrar input con menos de 2 palabras
 function preprocess_data(df::DataFrame)
+    # Preprocesar la data
     data = DataFrame(
         :DESCRIPCION_PROCESO => map(procesar_str, df.DESCRIPCION_PROCESO),
         :MONTO_REFERENCIAL_ITEM => df.MONTO_REFERENCIAL_ITEM,
         :LABEL => map(s -> s.LABEL, eachrow(df))
     )
-    # 
+
+    # Mapear (condicionalmente) el objeto contractual de los procesos: Consultoría de Obra, Obra, y Servicio 
+    OBJETO_DICT = Dict(objeto => idx for (idx, objeto) in enumerate(["Consultoría de Obra", "Obra", "Servicio"]))
+    map_objeto(s::String) = get(OBJETO_DICT, s, nothing)
     OBJ_column = df.OBJETOCONTRACTUAL
     OBJ_length = unique(OBJ_column) |> length
     OBJ_length > 1 && (data.OBJETOCONTRACTUAL = map(map_objeto, OBJ_column))
+
     # Filtrar únicamente descripciones con más de 2 palbras
     filter!(:DESCRIPCION_PROCESO => x -> length(split(x.text)) > 2, data)
     return data, OBJ_length
