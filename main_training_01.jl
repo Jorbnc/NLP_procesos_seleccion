@@ -4,11 +4,11 @@ using TextAnalysis, Languages
 using StatsBase: sample
 using Flux, MLJ
 #= import Optimisers =#
-include("text_preprocessing.jl")
+include("text_preprocessing_01.jl")
 
 ## Funciones para obtener data de archivo .xlsx
-# Leer .xlsx y filtrar filas con entradas :LABEL faltantes
 function data_from_xlsx(file_path::String, sheet_name::String)
+    # Leer el archivo .xlsx y filtrar filas con entradas :LABEL faltantes
     df = XLSX.readtable(file_path, sheet_name) |> DataFrame
     filter!(:LABEL => !ismissing, df)
     return df
@@ -34,20 +34,26 @@ function preprocess_data(df::DataFrame)
     return data, OBJ_length
 end
 
+function text_analysis(data::DataFrame)
+    # Agrupar todas las descripciones como un Corpus para analizarlas en conjunto
+    corpus = Corpus(data.DESCRIPCION_PROCESO)
+
+    # Generar un léxico con las ocurrencias y frecuencia de cada palabra
+    update_lexicon!(corpus)
+    lex = lexicon(corpus)
+    M = DocumentTermMatrix(corpus)
+    return lex, M
+end
+
 ##
 @time data, OBJ_length = data_from_xlsx("raw_data_01.xlsx", "Sheet1") |> preprocess_data
 
 ##
-corpus = Corpus(data.DESCRIPCION_PROCESO)
-update_lexicon!(corpus)
-lex = lexicon(corpus)
+@time lex, M = text_analysis(data)
 
 ##
-m = DocumentTermMatrix(corpus)
-
-##
-text_features = Float32.(m.dtm)
 objeto_features = Float32.(data.OBJETOCONTRACTUAL)
+text_features = Float32.(M.dtm)
 labels = data.LABEL
 
 ## Label Encoding
@@ -73,8 +79,6 @@ test_labels = one_hot_labels[:, test_indices]
 ## Step 3: Define the model
 model = Chain(
     Dense(size(text_features, 2) + 1 => 256 * 2, relu),
-    #= Dense(256 * 2 => 128 * 2, relu), =#
-    #= Dense(256 * 2 => 64, relu), =#
     Dense(256 * 2 => num_classes),
     softmax # Convert logits to probabilities
 )
@@ -98,20 +102,15 @@ test_loader = Flux.DataLoader((test_features, test_labels), batchsize=batch_size
 epochs = 50
 @time for epoch in 1:epochs
     @info "Epoch $epoch"
-    # Training phase
+    # Entrenamiento
     for (x, y) in train_loader
-        # Forward pass
         loss, grads = Flux.withgradient(model) do m
             ŷ = m(x)
             loss_function(ŷ, y)
         end
-        #
-        # Update weights
-        #= Flux.update!(optimizer, model, grads) =#
         Flux.update!(opt_state, model, grads[1])
     end
-
-    # Evaluation phase
+    # Evaluación
     train_loss = mean(Flux.logitcrossentropy(model(x), y) for (x, y) in train_loader)
     test_loss = mean(Flux.logitcrossentropy(model(x), y) for (x, y) in test_loader)
     @info "Train Loss: $train_loss, Test Loss: $test_loss"
@@ -124,7 +123,7 @@ function prediction(model, features)
     return predictions
 end
 
-## INFO: Prediction (same data)
+## TEST: Prediction (same data)
 predictions = prediction(model, test_features)
 unique_labels[predictions]
 
@@ -132,7 +131,7 @@ res = DataFrame(trueLabel=labels[test_indices], predLabel=unique_labels[predicti
 DataFrames.transform!(res, [:trueLabel, :predLabel] => ByRow((x, y) -> x == y) => :results)
 sum(res.results) / length(res.results)
 
-## INFO: Prediction (new data)
+## TEST: Prediction (new data)
 
 
 ##
