@@ -2,8 +2,8 @@ using DataFrames, XLSX
 using Pipe
 using TextAnalysis, Languages
 using StatsBase: sample
-using Flux, MLJ
-#= import Optimisers =#
+using Flux
+
 include("text_preprocessing_01.jl")
 
 ## Funciones para obtener data de archivo .xlsx
@@ -56,8 +56,10 @@ objeto_features = Float32.(data.OBJETOCONTRACTUAL)
 text_features = Float32.(M.dtm)
 labels = data.LABEL
 
-## Label Encoding
+# Label Encoding
 unique_labels = unique(labels)
+
+# TODO: Stratified sampling required here
 label_to_index = Dict(label => idx for (idx, label) in enumerate(unique_labels))
 label_indices = [label_to_index[label] for label in labels]
 
@@ -70,11 +72,11 @@ n_samples = size(text_features, 1)
 train_indices = sample(1:n_samples, Int64(round(0.8 * n_samples)), replace=false) # 80% train
 test_indices = setdiff(1:n_samples, train_indices) # remaining 20% test
 
-train_features = hcat(objeto_features[train_indices], text_features[train_indices, :])' # NOTE: Understand
-test_features = hcat(objeto_features[test_indices], text_features[test_indices, :])'
+Xtrain = hcat(objeto_features[train_indices], text_features[train_indices, :])' # NOTE: Understand
+Xtest = hcat(objeto_features[test_indices], text_features[test_indices, :])'
 
-train_labels = one_hot_labels[:, train_indices]
-test_labels = one_hot_labels[:, test_indices]
+Ytrain = one_hot_labels[:, train_indices]
+Ytest = one_hot_labels[:, test_indices]
 
 ## Step 3: Define the model
 model = Chain(
@@ -83,7 +85,7 @@ model = Chain(
     softmax # Convert logits to probabilities
 )
 
-##
+# WARNING: Loading a model state
 #= model_state = JLD2.load("seace_model.jld2", "model_state") =#
 #= Flux.loadmodel!(model, model_state) =#
 
@@ -95,11 +97,11 @@ opt_state = Flux.setup(Flux.Adam(), model)
 
 # Step 6: Create data loaders
 batch_size = 10_000 # NOTE: WHY?
-train_loader = Flux.DataLoader((train_features, train_labels), batchsize=batch_size, shuffle=true)
-test_loader = Flux.DataLoader((test_features, test_labels), batchsize=batch_size, shuffle=false)
+train_loader = Flux.DataLoader((Xtrain, Ytrain), batchsize=batch_size, shuffle=true)
+test_loader = Flux.DataLoader((Xtest, Ytest), batchsize=batch_size, shuffle=false)
 
 ## Step 6: Training loop
-epochs = 50
+epochs = 10
 @time for epoch in 1:epochs
     @info "Epoch $epoch"
     # Entrenamiento
@@ -111,8 +113,8 @@ epochs = 50
         Flux.update!(opt_state, model, grads[1])
     end
     # Evaluación
-    train_loss = mean(Flux.logitcrossentropy(model(x), y) for (x, y) in train_loader)
-    test_loss = mean(Flux.logitcrossentropy(model(x), y) for (x, y) in test_loader)
+    train_loss = Flux.mean(Flux.logitcrossentropy(model(x), y) for (x, y) in train_loader)
+    test_loss = Flux.mean(Flux.logitcrossentropy(model(x), y) for (x, y) in test_loader)
     @info "Train Loss: $train_loss, Test Loss: $test_loss"
 end
 
@@ -124,7 +126,7 @@ function prediction(model, features)
 end
 
 ## TEST: Prediction (same data)
-predictions = prediction(model, test_features)
+predictions = prediction(model, Xtest)
 unique_labels[predictions]
 
 res = DataFrame(trueLabel=labels[test_indices], predLabel=unique_labels[predictions])
