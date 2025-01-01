@@ -1,3 +1,5 @@
+df = data_from_xlsx("raw_data_01.xlsx", "Sheet1")
+
 ## WARNING:
 for g in eachrow(@pipe combine(groupby(df, :LABEL), nrow => :Counted) |> sort(_, :Counted))
     println(g.LABEL, " 🔴 ", g.Counted)
@@ -15,7 +17,7 @@ for g in groupby(data, :LABEL)
 end
 
 ## WARNING: DELETE
-for d in filter(:DESCRIPCION_PROCESO => x -> occursin("av", x.text), data).DESCRIPCION_PROCESO
+for d in filter(:DESCRIPCION_PROCESO => x -> occursin("calle", x.text), data).DESCRIPCION_PROCESO
     println(d.text)
 end
 

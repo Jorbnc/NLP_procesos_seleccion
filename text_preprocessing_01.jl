@@ -1,33 +1,33 @@
 const words_set = Set([
-    "emp", "km",
-    "ie",
-    "jr",
-    "vecinal",
-    "caserío", "caserio", "caseríos", "caserios",
-    "comunidad", "comunidades",
-    "sector", "sectores",
-    "urbanización", "urbanizacion", "urbanizaciones",
-    "poblado", "poblados",
-    "localidad", "localidades",
-    "distrito", "distritos",
-    "provincia", "provincias",
-    "departamento", "departamentos",
-    "región", "region", "regiones",
+    #= "emp", "km", =#
+    #= "ie", =#
+    #= "jr", =#
+    #= "vecinal", =#
+    #= "caserío", "caserio", "caseríos", "caserios", =#
+    #= "comunidad", "comunidades", =#
+    #= "sector", "sectores", =#
+    #= "urbanización", "urbanizacion", "urbanizaciones", =#
+    #= "poblado", "poblados", =#
+    #= "localidad", "localidades", =#
+    #= "distrito", "distritos", =#
+    #= "provincia", "provincias", =#
+    #= "departamento", "departamentos", =#
+    #= "región", "region", "regiones", =#
     "meta",
-    "tramo",
-    "av",
-    "dv", "cu",
-    "aahh", "hh",
-    "asentamiento", "asentamientos", "humano", "humanos",
-    "establecimiento", "establecimientos",
-    "cp",
-    "regional"
+    #= "tramo", =#
+    #= "av", =#
+    #= "dv", "cu", =#
+    #= "aahh", "hh", =#
+    #= "asentamiento", "asentamientos", "humano", "humanos", =#
+    #= "establecimiento", "establecimientos", =#
+    #= "cp", =#
+    #= "regional" =#
 ])
 
 function remove_unnecessary_words(str::String)
-    s = split(str)
+    s = split(str) # |> unique
     idx = findfirst(w -> w in words_set, s)
-    return idx === nothing ? str : join(s[1:idx-1], " ")
+    return idx === nothing ? join(s, " ") : join(s[1:idx-1], " ")
 end
 
 function procesar_str(str::String)

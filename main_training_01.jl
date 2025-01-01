@@ -3,6 +3,7 @@ using Pipe
 using TextAnalysis, Languages
 using StatsBase: sample
 using Flux
+using MLUtils
 
 include("text_preprocessing_01.jl")
 
@@ -41,7 +42,12 @@ function text_analysis(data::DataFrame)
     # Generar un léxico con las ocurrencias y frecuencia de cada palabra
     update_lexicon!(corpus)
     lex = lexicon(corpus)
-    M = DocumentTermMatrix(corpus)
+    lex = filter(x -> last(x) > 7, lex)
+
+    # Filtrar aquellas palabras que ocurren más de una vez al year
+    useful_keys = keys(lex) |> collect
+    M = DocumentTermMatrix(corpus, useful_keys)
+
     return lex, M
 end
 
@@ -50,6 +56,20 @@ end
 
 ##
 @time lex, M = text_analysis(data)
+
+## TODO: Encontrar un mejor gráfico. Esto debe ejecutarse con el lex original (i.e. lexicon(corpus))
+vals = values(lex) |> collect
+fig = Figure(size=(750, 375))
+ax = Axis(fig[1, 1],
+    #= title="Foo", =#
+    xlabel="Frecuencia de la palabra", ylabel="Cantidad de palabras",
+    yscale=Makie.pseudolog10, yticks=[0, 1, 10, 10^2, 10^3, 10^4, 10^5, 10^6],
+    #= xscale=Makie.pseudolog10, =#
+    xticks=[0, 7, 10^2, 10^3, 10^4, 10^5],
+    xticklabelrotation=45,
+)
+hist!(vals, bins=200, strokewidth=1, strokecolor=:black)
+display(fig)
 
 ##
 objeto_features = Float32.(data.OBJETOCONTRACTUAL)
@@ -96,12 +116,12 @@ loss_function(ŷ, y) = Flux.logitcrossentropy(ŷ, y)
 opt_state = Flux.setup(Flux.Adam(), model)
 
 # Step 6: Create data loaders
-batch_size = 10_000 # NOTE: WHY?
+batch_size = 128 # 10k
 train_loader = Flux.DataLoader((Xtrain, Ytrain), batchsize=batch_size, shuffle=true)
 test_loader = Flux.DataLoader((Xtest, Ytest), batchsize=batch_size, shuffle=false)
 
 ## Step 6: Training loop
-epochs = 10
+epochs = 5
 @time for epoch in 1:epochs
     @info "Epoch $epoch"
     # Entrenamiento
@@ -131,7 +151,7 @@ unique_labels[predictions]
 
 res = DataFrame(trueLabel=labels[test_indices], predLabel=unique_labels[predictions])
 DataFrames.transform!(res, [:trueLabel, :predLabel] => ByRow((x, y) -> x == y) => :results)
-sum(res.results) / length(res.results)
+#= sum(res.results) / length(res.results) =#
 
 ## TEST: Prediction (new data)
 
