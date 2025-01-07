@@ -5,57 +5,12 @@ using StatsBase: sample
 using Flux
 using MLUtils
 
-include("text_preprocessing_01.jl")
-
-## Funciones para obtener data de archivo .xlsx
-function data_from_xlsx(file_path::String, sheet_name::String)
-    # Leer el archivo .xlsx y filtrar filas con entradas :LABEL faltantes
-    df = XLSX.readtable(file_path, sheet_name) |> DataFrame
-    filter!(:LABEL => !ismissing, df)
-    return df
-end
-
-function preprocess_data(df::DataFrame)
-    # Preprocesar la data
-    data = DataFrame(
-        :DESCRIPCION_PROCESO => map(procesar_str, df.DESCRIPCION_PROCESO),
-        :MONTO_REFERENCIAL_ITEM => df.MONTO_REFERENCIAL_ITEM,
-        :LABEL => map(s -> s.LABEL, eachrow(df))
-    )
-
-    # Mapear (condicionalmente) el objeto contractual de los procesos: Consultoría de Obra, Obra, y Servicio 
-    OBJETO_DICT = Dict(objeto => idx for (idx, objeto) in enumerate(["Consultoría de Obra", "Obra", "Servicio"]))
-    map_objeto(s::String) = get(OBJETO_DICT, s, nothing)
-    OBJ_column = df.OBJETOCONTRACTUAL
-    OBJ_length = unique(OBJ_column) |> length
-    OBJ_length > 1 && (data.OBJETOCONTRACTUAL = map(map_objeto, OBJ_column))
-
-    # Filtrar únicamente descripciones con más de 2 palbras
-    filter!(:DESCRIPCION_PROCESO => x -> length(split(x.text)) > 2, data)
-    return data, OBJ_length
-end
-
-function text_analysis(data::DataFrame)
-    # Agrupar todas las descripciones como un Corpus para analizarlas en conjunto
-    corpus = Corpus(data.DESCRIPCION_PROCESO)
-
-    # Generar un léxico con las ocurrencias y frecuencia de cada palabra
-    update_lexicon!(corpus)
-    lex = lexicon(corpus)
-    lex = filter(x -> last(x) > 7, lex)
-
-    # Filtrar aquellas palabras que ocurren más de una vez al year
-    useful_keys = keys(lex) |> collect
-    M = DocumentTermMatrix(corpus, useful_keys)
-
-    return lex, M
-end
+include("utils/text_preprocessing_01.jl")
+include("utils/data_corpus_lex_M_01.jl")
 
 ##
-@time data, OBJ_length = data_from_xlsx("raw_data_01.xlsx", "Sheet1") |> preprocess_data
-
-##
-@time lex, M = text_analysis(data)
+data, OBJ_length = data_from_xlsx("raw_data_01.xlsx", "Sheet1") |> preprocess_data
+corpus, lex, M = text_analysis(data)
 
 ## TODO: Encontrar un mejor gráfico. Esto debe ejecutarse con el lex original (i.e. lexicon(corpus))
 vals = values(lex) |> collect
@@ -76,10 +31,9 @@ objeto_features = Float32.(data.OBJETOCONTRACTUAL)
 text_features = Float32.(M.dtm)
 labels = data.LABEL
 
+# TODO: Stratified sampling required here
 # Label Encoding
 unique_labels = unique(labels)
-
-# TODO: Stratified sampling required here
 label_to_index = Dict(label => idx for (idx, label) in enumerate(unique_labels))
 label_indices = [label_to_index[label] for label in labels]
 
@@ -88,9 +42,20 @@ num_classes = length(unique_labels)
 one_hot_labels = Flux.onehotbatch(label_indices, 1:num_classes)
 
 # Step 2: Split data into training and testing sets
-n_samples = size(text_features, 1)
-train_indices = sample(1:n_samples, Int64(round(0.8 * n_samples)), replace=false) # 80% train
-test_indices = setdiff(1:n_samples, train_indices) # remaining 20% test
+function get_stratified_indices()
+    train_indices = Vector{Int64}()
+    test_indices = Vector{Int64}()
+    for v in values(group_indices(labels))
+        group_length = size(v, 1)
+        s = sample(1:group_length, Int64(round(0.8 * group_length)), replace=false)
+        sᶜ = setdiff(1:group_length, s)
+        append!(train_indices, v[s])
+        append!(test_indices, v[sᶜ])
+    end
+    return train_indices, test_indices
+end
+
+train_indices, test_indices = get_stratified_indices()
 
 Xtrain = hcat(objeto_features[train_indices], text_features[train_indices, :])' # NOTE: Understand
 Xtest = hcat(objeto_features[test_indices], text_features[test_indices, :])'
@@ -105,15 +70,15 @@ model = Chain(
     softmax # Convert logits to probabilities
 )
 
-# WARNING: Loading a model state
-#= model_state = JLD2.load("seace_model.jld2", "model_state") =#
-#= Flux.loadmodel!(model, model_state) =#
+### WARNING: Loading a model state
+model_state = JLD2.load("model_01_0_0150_x4.jld2", "model_state")
+Flux.loadmodel!(model, model_state)
 
 ## Step 4: Define the loss function
 loss_function(ŷ, y) = Flux.logitcrossentropy(ŷ, y)
 
 # Step 5: Define the optimizer
-opt_state = Flux.setup(Flux.Adam(), model)
+opt_state = Flux.setup(Flux.Adam(0.001), model)
 
 # Step 6: Create data loaders
 batch_size = 128 # 10k
@@ -145,19 +110,62 @@ function prediction(model, features)
     return predictions
 end
 
-## TEST: Prediction (same data)
-predictions = prediction(model, Xtest)
-unique_labels[predictions]
+function prediction_threshold(model, features, threshold)
+    model_output = model(features)
+    res = Vector{Union{String,Missing}}()
+    for col in eachcol(model_output)
+        if maximum(col) < threshold
+            push!(res, "?????")
+        else
+            out = unique_labels[Flux.onecold(col, 1:num_classes)]
+            push!(res, out)
+        end
+    end
+    return res
+end
 
-res = DataFrame(trueLabel=labels[test_indices], predLabel=unique_labels[predictions])
-DataFrames.transform!(res, [:trueLabel, :predLabel] => ByRow((x, y) -> x == y) => :results)
-#= sum(res.results) / length(res.results) =#
-
-## TEST: Prediction (new data)
-
+function eval_accuracy(X, indices)
+    predictions = prediction(model, X)
+    res = DataFrame(trueL=labels[indices], predL=unique_labels[predictions])
+    DataFrames.transform!(res, [:trueL, :predL] => ByRow((x, y) -> x == y) => :results)
+    acc = combine(groupby(res, :trueL), :results => (x -> sum(x) / length(x)) => :Accuracy)
+    @show sum(res.results) / length(res.results)
+    sort!(acc, :Accuracy)
+    return acc
+end
 
 ##
-model_state = Flux.state(model)
-jldsave("seace_model.jld2"; model_state)
+eval_accuracy(Xtrain, train_indices)
 
+##
+eval_accuracy(Xtest, test_indices)
 
+##
+seace_df = XLSX.readtable("data/Lista-Procesos.xlsx", "Sheet0") |> DataFrame
+seace_df = DataFrame(
+    :OBJETOCONTRACTUAL => map(map_objeto, seace_df."Objeto de Contratación"),
+    :DESCRIPCION_PROCESO => map(procesar_str, seace_df."Descripción de Objeto"),
+)
+filter!(:OBJETOCONTRACTUAL => !isnothing, seace_df)
+
+##
+function predict_unseen(df::DataFrame)
+    sample_row = hcat(df.OBJETOCONTRACTUAL[1], dtv(df.DESCRIPCION_PROCESO[1], lex))
+    n, m = size(df, 1), length(sample_row)
+    result_matrix = Matrix{eltype(sample_row)}(undef, n, m)
+    for i in 1:n
+        result_matrix[i, :] = hcat(df.OBJETOCONTRACTUAL[i], dtv(df.DESCRIPCION_PROCESO[i], lex))
+    end
+    X = Float32.(result_matrix)'
+    DataFrame(
+        :DESCRIPCION_PROCESO => [d.text for d in df.DESCRIPCION_PROCESO],
+        :PREDICTION => prediction_threshold(model, X, 0.95)
+    )
+end
+
+foo = predict_unseen(seace_df)
+XLSX.writetable("unseen_pred_0150_x4.xlsx", foo)
+
+## 
+#= model_state = Flux.state(model) =#
+#= jldsave("model_01_0_0150_x4.jld2"; model_state) =#
