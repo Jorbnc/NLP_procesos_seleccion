@@ -13,6 +13,7 @@ Los packages clave fueron:
 
 - Las clases menos frecuentes tuvieron un accuracy menor al 80%.
 - Las clases más representativas tuvieron un accuracy superior al 90%.
+- La exactitud promedio ponderada fue del 93%
 
 ![til](./img/resultados_01.png)
 
