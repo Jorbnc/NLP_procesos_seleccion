@@ -1,3 +1,4 @@
+using GLMakie
 using DataFrames, XLSX
 using Pipe
 using TextAnalysis, Languages
@@ -20,7 +21,7 @@ ax = Axis(fig[1, 1],
     xlabel="Frecuencia de la palabra", ylabel="Cantidad de palabras",
     yscale=Makie.pseudolog10, yticks=[0, 1, 10, 10^2, 10^3, 10^4, 10^5, 10^6],
     #= xscale=Makie.pseudolog10, =#
-    xticks=[0, 7, 10^2, 10^3, 10^4, 10^5],
+    #= xticks=[0, 7, 10^2, 10^3, 10^4, 10^5], =#
     xticklabelrotation=45,
 )
 hist!(vals, bins=200, strokewidth=1, strokecolor=:black)
@@ -31,17 +32,17 @@ objeto_features = Float32.(data.OBJETOCONTRACTUAL)
 text_features = Float32.(M.dtm)
 labels = data.LABEL
 
-# TODO: Stratified sampling required here
-# Label Encoding
+# TODO: Stratified sampling (requerido)
+## Label Encoding
 unique_labels = unique(labels)
 label_to_index = Dict(label => idx for (idx, label) in enumerate(unique_labels))
 label_indices = [label_to_index[label] for label in labels]
 
-# Convert labels to one-hot encoding
+# One-Hot
 num_classes = length(unique_labels)
 one_hot_labels = Flux.onehotbatch(label_indices, 1:num_classes)
 
-# Step 2: Split data into training and testing sets
+## Split
 function get_stratified_indices()
     train_indices = Vector{Int64}()
     test_indices = Vector{Int64}()
@@ -57,27 +58,28 @@ end
 
 train_indices, test_indices = get_stratified_indices()
 
-Xtrain = hcat(objeto_features[train_indices], text_features[train_indices, :])' # NOTE: Understand
+Xtrain = hcat(objeto_features[train_indices], text_features[train_indices, :])'
 Xtest = hcat(objeto_features[test_indices], text_features[test_indices, :])'
 
 Ytrain = one_hot_labels[:, train_indices]
 Ytest = one_hot_labels[:, test_indices]
 
-## Step 3: Define the model
+## Definición de Modelo
 model = Chain(
     Dense(size(text_features, 2) + 1 => 256 * 2, relu),
     Dense(256 * 2 => num_classes),
     softmax # Convert logits to probabilities
 )
 
-### WARNING: Loading a model state
+### WARNING: Load modelo
+using JLD2
 model_state = JLD2.load("model_01_0_0150_x4.jld2", "model_state")
 Flux.loadmodel!(model, model_state)
 
-## Step 4: Define the loss function
+## Loss
 loss_function(ŷ, y) = Flux.logitcrossentropy(ŷ, y)
 
-# Step 5: Define the optimizer
+# Optimizador
 opt_state = Flux.setup(Flux.Adam(0.001), model)
 
 # Step 6: Create data loaders
@@ -85,7 +87,7 @@ batch_size = 128 # 10k
 train_loader = Flux.DataLoader((Xtrain, Ytrain), batchsize=batch_size, shuffle=true)
 test_loader = Flux.DataLoader((Xtest, Ytest), batchsize=batch_size, shuffle=false)
 
-## Step 6: Training loop
+## Train
 epochs = 5
 @time for epoch in 1:epochs
     @info "Epoch $epoch"
