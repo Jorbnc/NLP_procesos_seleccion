@@ -1,10 +1,11 @@
 # NLP Procesos de Selección
 
-Clasificaciˊon de textos descriptivos en procesos de selecciˊon estatales mediante redes neuronales simples.
+Clasificación de textos descriptivos en procesos de selección estatales mediante redes neuronales simples.
 
 Los packages clave fueron:
-- `TextAnalysis.jl` + `Languages.jl`
-- `Flux.jl`
+- `DataFrames` (Manejo eficiente de datos tabulares)
+- `Flux.jl` (Framework para Machine Learning)
+- `TextAnalysis.jl` + `Languages.jl` (NLP)
 
 ---
 
